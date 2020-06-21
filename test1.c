@@ -12,12 +12,18 @@ void main (void)
 	   
 		
 			while(1){
-				
+				int a = GPIO_ReadInputPin(GPIOC,GPIO_PIN_6);
 					GPIO_WriteHigh(GPIOA,GPIO_PIN_3); //LED ON					
-					delay_us(13);
+					delay_us(2);
 					GPIO_WriteLow(GPIOA,GPIO_PIN_3); //LED OFF						
-					delay_us(13);
-					
+					delay_us(2);
+					if(a==0){
+						GPIO_WriteHigh(GPIOC,GPIO_PIN_4);
+					}
+						else{
+							GPIO_WriteLow(GPIOC,GPIO_PIN_4);
+			
+	}
 			
 			
 	}
