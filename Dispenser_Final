@@ -1,0 +1,277 @@
+//
+//  This program shows how you can generate a PWM signal on the
+//  STM8S microcontroller.
+//
+//  This software is provided under the CC BY-SA 3.0 licence.  A
+//  copy of this licence can be found at:
+//
+//  http://creativecommons.org/licenses/by-sa/3.0/legalcode
+//
+#if defined DISCOVERY
+#include <iostm8S105c6.h>
+#elif defined PROTOMODULE
+#include <iostm8s103k3.h>
+#else
+#include <iostm8s103f3.h>
+#endif
+#include <intrinsics.h>
+
+
+
+
+#define relay PB_ODR_ODR5
+#define ir PC_IDR_IDR6
+#define l1 PD_IDR_IDR2
+#define rled PC_ODR_ODR3
+#define gled PC_ODR_ODR5
+#define gled2 PC_ODR_ODR4
+
+int reading;
+ int state=0;
+
+//
+//  Setup the system clock to run at 16MHz using the internal oscillator.
+//
+void InitialiseSystemClock()
+{
+  CLK_ICKR = 0;                       //  Reset the Internal Clock Register.
+  CLK_ICKR_HSIEN = 1;                 //  Enable the HSI.
+  CLK_ECKR = 0;                       //  Disable the external clock.
+  while (CLK_ICKR_HSIRDY == 0);       //  Wait for the HSI to be ready for use.
+  CLK_CKDIVR_HSIDIV = 0;              //  Ensure the clocks are running at full speed.
+  CLK_CKDIVR_CPUDIV = 0;
+  CLK_PCKENR1 = 0xff;                 //  Enable all peripheral clocks.
+  CLK_PCKENR2 = 0xff;                 //  Ditto.
+  CLK_CCOR = 0;                       //  Turn off CCO.
+  CLK_HSITRIMR = 0;                   //  Turn off any HSIU trimming.
+  CLK_SWIMCCR = 0;                    //  Set SWIM to run at clock / 2.
+  CLK_SWR = 0xe1;                     //  Use HSI as the clock source.
+  CLK_SWCR = 0;                       //  Reset the clock switch control register.
+  CLK_SWCR_SWEN = 1;                  //  Enable switching.
+  while (CLK_SWCR_SWBSY != 0);        //  Pause while the clock switch is busy.
+}
+
+//  Timer 2 Overflow handler.
+//
+#pragma vector = TIM2_OVR_UIF_vector
+__interrupt void TIM2_UPD_OVF_IRQHandler(void)
+{
+  
+  
+  ADC_CR1_ADON = 1;       //  Second write starts the conversion.
+  
+  TIM2_SR1_UIF = 0;       //  Reset the interrupt otherwise it will fire again straight away.
+}
+
+//
+//  Setup Timer 2 to PWM signal.
+//
+void SetupTimer2()
+{
+  TIM2_PSCR = 0x00;       //  Prescaler = 1.
+  TIM2_ARRH = 0x01;       //  High byte of 50,000.
+  TIM2_ARRL = 0xA4;       //  Low byte of 50,000.
+  TIM2_CCR3H = 0x00;      //  High byte of 12,500
+  TIM2_CCR3L = 0x90;      //  Low byte of 12,500
+  TIM2_CCER2_CC3P = 0;    //  Active high.
+  TIM2_CCER2_CC3E = 1;    //  Enable compare mode for channel 1
+  TIM2_CCMR3_OC3M = 6;    //  PWM Mode 1 - active if counter < CCR1, inactive otherwise.
+  TIM2_IER_UIE = 1;       //  Enable the update interrupts.
+  TIM2_CR1_CEN = 1;       //  Finally enable the timer.
+}
+
+//  ADC Conversion completed interrupt handler.
+//
+#pragma vector = ADC1_EOC_vector
+__interrupt void ADC1_EOC_IRQHandler(){
+  
+  unsigned char low, high;  
+  
+  ADC_CR1_ADON = 0;       //  Disable the ADC.    
+  ADC_CSR_EOC = 0;		// 	Indicate that ADC conversion is complete.
+  
+  low = ADC_DRL;			//	Extract the ADC reading.
+  high = ADC_DRH;
+  reading = 1023 - ((high * 256) + low);    
+  
+  low = reading & 0xff;
+  high = (reading >> 8) & 0xff;    
+}
+
+// Setup the ADC to perform a single conversion and then generate an interrupt.
+//
+void SetupADC()
+{
+  ADC_CR1_ADON = 1;       //  Turn ADC on, note a second set is required to start the conversion.
+  
+#if defined PROTOMODULE
+  ADC_CSR_CH = 0x03;
+#else
+  ADC_CSR_CH = 0x06;      //  ADC on AIN4 only.
+#endif
+  
+  ADC_CR3_DBUF = 0;
+  ADC_CR2_ALIGN = 1;      //  Data is right aligned.
+  ADC_CSR_EOCIE = 1;      //  Enable the interrupt after conversion completed.
+}
+
+
+void delay(unsigned int n)
+{
+  while (n-- > 0);
+}
+void SetupOutputPorts()
+{
+  
+  PB_ODR = 0;             //  All pins are turned off.
+  PB_DDR_DDR5 = 1;        //  Port D, bit 5 is output.
+  PB_CR1_C15 = 1;         //  Pin is set to Push-Pull mode.
+  PB_CR2_C25 = 1;         //  Pin can run upto 10 MHz.
+  
+  PC_ODR = 0;             //  All pins are turned off.
+  PC_DDR_DDR6 = 0;        //  Port C, bit 5 is input.
+  PC_CR1_C16 = 0;         //  Pin is set to Push-Pull mode.
+  
+  PC_DDR_DDR3 = 1;        //  Port D, bit 3 is output.
+  PC_CR1_C13 = 1;         //  Pin is set to Push-Pull mode.
+  PC_CR2_C23 = 1;         //  Pin can run upto 10 MHz.
+  
+  PC_DDR_DDR4 = 1;        //  Port D, bit 5 is output.
+  PC_CR1_C14 = 1;         //  Pin is set to Push-Pull mode.
+  PC_CR2_C24 = 1;         //  Pin can run upto 10 MHz.
+  
+  PC_DDR_DDR5 = 1;        //  Port D, bit 5 is output.
+  PC_CR1_C15 = 1;         //  Pin is set to Push-Pull mode.
+  PC_CR2_C25 = 1;         //  Pin can run upto 10 MHz.
+  
+  PD_ODR = 0;             //  All pins are turned off.
+  PD_DDR_DDR2 = 0;        //  Port D, bit 2 is input
+  PD_CR1_C12 = 0;         //  Pin is set to Push-Pull mode.
+}
+
+//
+//  Main program loop.
+//
+void main()
+{
+  //
+  //  Initialise the system.
+  __disable_interrupt();
+  InitialiseSystemClock();
+  SetupTimer2();
+  
+  SetupOutputPorts();
+  
+  SetupADC();
+  __enable_interrupt();
+  
+  
+  
+  
+  while (1)
+  {       
+   
+    
+    if(ir==0 && state==0){
+      delay(30000);
+      relay = 1;
+      
+      while(reading<200){
+        state=1; 
+        delay(60000);delay(60000);delay(60000);delay(60000);delay(60000);
+        delay(60000);delay(60000);delay(60000);delay(60000);delay(60000);
+        relay = 0;
+      }
+    
+    while(reading>201 && reading<400){
+      state=1; 
+        delay(60000);delay(60000);delay(60000);delay(60000);delay(60000);
+        delay(60000);delay(60000);delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);delay(60000);delay(60000);
+        delay(60000);delay(60000);delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        relay = 0;
+      
+    } 
+  
+  while(reading>401 && reading<800){
+    state=1; 
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);
+        relay = 0;
+  }  
+
+while(reading>801 && reading<1024){
+  state=1; 
+  delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+  delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);delay(60000);if(ir==1){break;}
+        delay(60000);delay(60000);if(ir==1){break;}
+        relay = 0;
+}  
+            }        
+
+           else if (ir==1 && state==1){            
+             relay = 0;
+             state=0;
+           }
+    
+
+if(l1==0){
+  delay(60000);
+  //delay(60000);
+  gled = 1;
+  rled = 0;
+}
+if(l1==1){
+  gled = 0;
+  rled = 1;                            
+  delay(60000);
+  delay(60000);
+  delay(60000);
+  delay(60000);
+  delay(60000);
+  
+  rled = 0;            
+  delay(60000);
+  delay(60000);
+  delay(60000);
+  delay(60000);
+  delay(60000);
+  
+}
+
+  }
+}
